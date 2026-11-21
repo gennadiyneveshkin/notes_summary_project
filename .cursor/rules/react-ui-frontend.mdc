@@ -1,0 +1,113 @@
+---
+description: "React UI frontend standards: functional components, TypeScript, hooks, styling, accessibility and performance rules. Apply when creating or editing React components (.tsx/.ts files)"
+globs: "**/*.{tsx,ts}"
+alwaysApply: false
+---
+
+# React UI Frontend Standards
+
+## Scope
+
+Apply to all React UI code: components, hooks, pages, layouts, forms.
+Stack baseline: React 19, TypeScript (strict), Vite or Next.js App Router, CSS modules or Tailwind, TanStack Query for server state, Vitest + React Testing Library for tests.
+
+## Components
+
+- Functional components only. Never write class components.
+- File name = component name in PascalCase (`UserCard.tsx`), one component per file.
+- Prefer named exports over default exports.
+- Keep components under ~200 lines. When a file grows, extract subcomponents into the same directory.
+- Group files by feature, not by type (`features/checkout/`, not `components/`, `hooks/`, `utils/` dumps).
+- Co-locate component-specific helpers, types and styles next to the component. Hoist only shared code.
+- Prefer composition over prop drilling: pass `children` or render props instead of threading data through layers.
+- Do not create wrapper components that only forward props. Inherit HTML attributes via `React.ComponentProps<"div">` / `extends HTMLAttributes` when building primitives.
+
+## TypeScript
+
+- Strict mode, no `any` for component props or API data. Use `unknown` + narrowing when the shape is unknown.
+- Derive types from a single source: `type User = z.infer<typeof userSchema>` when Zod is used at the API boundary.
+- Do not mirror API response types by hand in multiple places.
+- Prefer `type` unions over enums; avoid non-const object types for closed sets of values.
+- Props: readonly by convention, avoid mutation; do not add useless `React.FC`.
+
+## Hooks and state
+
+- Keep hooks at the top level: no calls inside conditions, loops or after early returns. (Exception: the `use()` hook may be called conditionally.)
+- Do not store derived state in `useState`; compute it during render.
+- Server state does not go into `useState` or `useEffect` fetches. Use TanStack Query (or the framework loader) as the single source for fetching, caching and revalidation.
+- Do not use `useEffect` for data fetching, event handling, or transforming props into state. Effects are for synchronizing React with external systems (subscriptions, DOM measurement, third-party widgets).
+- Every `useEffect` must have a complete dependency array and a cleanup when it subscribes, starts timers or aborts fetches. Guard against race conditions with an `ignore` flag or `AbortController`.
+- Keep each effect focused on one concern; split into multiple effects otherwise.
+- Trust the React Compiler when it is enabled: do not wrap everything in `useMemo`/`useCallback` preemptively. Add memoization only on a measured render bottleneck, and mark the reason in a comment.
+- Prefer `useReducer` over multiple tangled `useState` when state transitions are complex; prefer `useRef` for mutable values that must not trigger renders.
+- Custom hooks: prefix `use`, extract only reusable logic that is genuinely needed in a second place (e.g. `useDisclosure`, `useDebouncedValue`, `useLocalStorage`). Name by concern, not by page (`useOnlineStatus`, not `useProfilePageLogic`).
+- Do not put logic in the `use*` namespace unless it calls hooks.
+
+## React 19 idioms
+
+- Use `useActionState` for form actions with pending/error state, `useFormStatus` inside forms for submit state, `useOptimistic` for optimistic UI, `useTransition` / `useDeferredValue` for non-urgent updates.
+- Use the `use()` hook with Suspense for reading cached promises instead of `useEffect` + `setState` fetch patterns. The promise must be cached (query library or framework loader).
+- Server Components (where applicable) must not use hooks or handlers; add `"use client"` only for interactive leaves.
+- Prefer `<form action={...}>` with Actions over manual `onSubmit` + `loading` state boilerplate.
+- Use `ref` as a regular prop for DOM elements (no `forwardRef` needed in React 19).
+
+## Styling
+
+- Use the project's styling system consistently (Tailwind or CSS Modules). Do not mix ad-hoc inline styles except for dynamic values (`style={{ width: progress }}`).
+- Co-locate styles with the component; no global class name pollution.
+- Responsive by mobile-first; use design tokens (spacing, colors, radii) from the theme instead of magic numbers.
+- Support dark mode via tokens/semantic colors, not hardcoded hex values in components.
+
+## Accessibility (non-negotiable)
+
+- Semantic HTML first: `button` for actions, `a` for navigation, headings in order, `label` tied to every input.
+- Interactive elements must be reachable and operable by keyboard: visible focus states, Enter/Space behavior on custom controls.
+- Every image has meaningful `alt` (or empty `alt=""` if decorative); icon-only buttons need `aria-label`.
+- Manage focus for modals/drawers (focus trap, restore on close) and announce async state changes for screen readers (`aria-live` where appropriate).
+- Do not remove outlines without providing an equivalent visible focus indicator.
+- Color contrast: WCAG 2.2 AA for text and interactive states.
+
+## Forms and validation
+
+- Controlled inputs via React Hook Form; validation schemas with Zod shared between client and server where possible.
+- Validate on submit or blur, not on every keystroke; show field-level errors tied with `aria-describedby` and `aria-invalid`.
+- Disable submit while pending; show inline error message; never swallow errors silently.
+
+## Error handling
+
+- Every async boundary handles loading, error and empty states explicitly.
+- Use error boundaries (`react-error-boundary`) around route/feature sections instead of one global catcher.
+- Show user-friendly messages for expected errors; log unexpected ones with context (do not log to console in production code paths).
+
+## Performance
+
+- Do not optimize without measurement. Profile first; fix the real bottleneck.
+- List rendering: stable `key` (stable ID, not array index when items reorder), paginate/virtualize long lists (`@tanstack/react-virtual`).
+- Images: `loading="lazy"` for below-the-fold, explicit `width`/`height` or aspect ratio to avoid layout shift, modern formats via `next/image` or an equivalent loader.
+- Code-split heavy routes and large dependencies with `React.lazy` / dynamic imports.
+- Avoid new object/array/function literals in hot dependency arrays; hoist constants outside the component.
+
+## Testing
+
+- Tests live next to the feature (`Component.test.tsx`), co-located with the component.
+- React Testing Library: query by role/label/text (`getByRole`, `getByLabelText`), never by implementation details or class names.
+- Test user behavior, not internal state; use `userEvent`, not `fireEvent`.
+- Async queries and toasts need `waitFor`/`findBy` queries; mock network with MSW.
+- Do not assert on implementation details; assert on what the user sees and does.
+
+## Naming and code style
+
+- camelCase for variables/functions, PascalCase for components/types, SCREAMING_SNAKE_CASE for constants.
+- Handlers: `handleClick`, `handleSubmit`; boolean props: `isEnabled`, `hasError`.
+- Avoid single-letter names outside short loop scopes; no abbreviations except well-known (`props`, `ref`).
+- No commented-out code, no `console.log` in committed code, no TODO without an issue reference.
+- Prefer `async/await` over promise chains; always handle rejections.
+
+## Workflow rules for the agent
+
+- Before editing, read the actual file and adjacent code; do not assume conventions from memory.
+- Preserve existing code style in the file being edited; do not reformat unrelated code.
+- Do not modify generated files (`dist/`, `build/`, lockfiles).
+- When unsure about types or API shapes, check the source or schema instead of guessing.
+- Run lint and typecheck after changes; fix new errors introduced by the change.
+- Keep changes minimal and focused: one concern per change.

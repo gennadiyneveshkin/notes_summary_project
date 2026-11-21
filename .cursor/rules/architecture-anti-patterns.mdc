@@ -1,0 +1,73 @@
+---
+description: Guard against software architecture anti-patterns (Big Ball of Mud, God Object, Distributed Monolith, Golden Hammer, Magic Pushbutton, premature optimization, cargo cult) when designing new modules, refactoring, or reviewing structure
+alwaysApply: false
+---
+
+# Architecture Anti-Patterns Guard
+
+When designing new features, refactoring, or reviewing architecture, check the code against the anti-patterns below. Name a detected anti-pattern explicitly, explain the concrete risk, and propose the simplest compliant alternative. Do not copy harmful existing structure just "for consistency" — flag it instead.
+
+## Core principles
+
+- Start with the simplest architecture that solves the current problem. Add complexity (extra layers, queues, microservices) only when real requirements demand it.
+- Dependencies point inward toward the domain. UI, frameworks, and infrastructure depend on the core; the core never depends on them.
+- Module boundaries are enforced: no bypassing a module's public API, no reaching into its internals or its database.
+- Prefer a well-modularized monolith over speculative distribution. Extract a service only for a bounded context that genuinely needs independent deployability or scaling.
+
+## Anti-patterns to detect and avoid
+
+### Big Ball of Mud / Spaghetti Architecture
+Signs: any module can import any other, circular dependencies, no layers or layers that are violated everywhere, changes in one place break unrelated code.
+Do instead: enforce layering and module boundaries; route all new imports through public APIs; if structure is already tangled, refactor in place or use the Strangler Fig pattern rather than a big-bang rewrite.
+
+### God Object / God Class
+Signs: one class handles UI + business logic + persistence; grab-bag names (`Manager`, `Helper`, `Utils`, `Service` holding everything); the class is hard to unit test.
+Do instead: split by single responsibility; keep orchestration thin and push domain rules into focused domain objects.
+
+### Distributed Monolith
+Signs: services share one database, synchronous call chains A → B → C, services must be deployed together. This is the most common microservices failure mode.
+Do instead: each service owns its data, prefer async communication where possible, ensure independent deployability — or consolidate back into a modular monolith instead of pretending to have microservices.
+
+### Cargo Cult Architecture
+Signs: adopting microservices, event-driven design, or Kubernetes because they are fashionable, without a concrete problem they solve.
+Do instead: rank the `-ilities` (scalability, deployability, testability...) that actually matter for this system and justify each architectural choice against them.
+
+### Golden Hammer
+Signs: one favorite tool or pattern applied to every problem (e.g., stored procedures for all business logic, one framework for every subsystem).
+Do instead: choose the tool per problem; justify deviations from the project stack explicitly.
+
+### Magic Pushbutton
+Signs: a single UI action triggers a long hidden chain of side effects with no logging, no feedback, and no rollback.
+Do instead: explicit orchestration with named steps, logging, idempotency, and error reporting for each step.
+
+### Premature Optimization
+Do not complicate code for speculative performance. Forget small efficiencies about 97% of the time (Knuth); optimize only measured hot paths, after profiling. Clear, correct code first — but do not use the quote as an excuse for sloppy algorithms: complexity class matters from day one, micro-optimizations do not.
+
+### Also avoid (compact checklist)
+- **Lava Flow** — dead code kept out of fear; delete it or isolate it behind versioning.
+- **Boat Anchor** — unused libraries/components in the codebase; remove them.
+- **Not Invented Here / Reinventing the wheel** — prefer a proven library over a hand-rolled equivalent unless the custom version is justified and documented.
+- **Anemic Domain Model** — domain classes that are pure data bags with all logic in services; move behavior next to the data it governs.
+- **Leaky abstraction / layer violation** — SQL, HTTP, or ORM details bleeding across layers; hide them behind interfaces.
+- **Singleton abuse** — global mutable state; prefer explicit dependency injection.
+- **Magic numbers/strings & hard-coded config** — move to named constants and configuration.
+
+## When writing new code
+
+- New code follows the target architecture, not the surrounding rot. If constraints force a compromise, isolate the damage behind an interface and note the debt with a `// TODO(arch-debt):` comment.
+- Never increase coupling while adding a feature: adding a cross-module import that bypasses an API is a regression, not a shortcut.
+
+## Decision procedure
+
+1. Identify which anti-pattern(s) this task risks introducing.
+2. Name it and state the concrete risk in plain language.
+3. Propose the simplest structure that satisfies the requirement without the anti-pattern.
+4. If the constraint is legacy code that cannot be changed now, contain it (interface, module boundary) and record the debt.
+
+## References
+
+- Foote & Yoder, "Big Ball of Mud", 1999 — original definition of the name anti-pattern.
+- Brown et al., "AntiPatterns: Refactoring Software, Architectures, and Projects in Crisis", 1998.
+- Knuth, "Structured Programming with go to Statements", 1974 (premature optimization).
+- Martin Fowler — microservices trade-offs, modular monolith, Strangler Fig.
+- Microsoft Azure Architecture Center — cloud design patterns / anti-patterns catalog.

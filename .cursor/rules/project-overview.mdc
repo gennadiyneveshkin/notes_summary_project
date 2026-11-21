@@ -1,0 +1,122 @@
+---
+description: Project overview for a personal notes editor web app (Next.js + Supabase + TipTap + AI summarization). Defines tech stack, architecture, and core conventions for the entire project.
+alwaysApply: true
+---
+
+# Project Overview: Personal Notes Editor
+
+## What this project is
+
+A web application for creating, editing, and organizing personal notes with rich-text formatting, AI-powered summarization, and full-text search. Notes are private to each authenticated user.
+
+## Core features
+
+1. Note editor with formatting: bold, italic, bullet lists, numbered lists.
+2. Organization by folders and tags (many-to-many between notes and tags).
+3. AI summarization: a "Summarize" button sends note content to an LLM API (OpenAI or Anthropic) and returns a short summary.
+4. Full-text search across the user's notes.
+5. Responsive, mobile-first design.
+
+## Tech stack
+
+| Layer          | Technology                                  |
+|----------------|---------------------------------------------|
+| Framework      | Next.js (App Router), React, TypeScript     |
+| Editor         | TipTap v3 (@tiptap/react, @tiptap/starter-kit) |
+| Database       | PostgreSQL via Supabase                     |
+| Auth & Storage | Supabase Auth + @supabase/ssr               |
+| AI             | OpenAI API or Anthropic API (server-side only) |
+| Styling        | Tailwind CSS (mobile-first, responsive)     |
+| Deployment     | Vercel                                      |
+
+## Architecture rules
+
+### Next.js App Router (server-first)
+
+- Default to Server Components. Add `"use client"` only at the leaf level: editor, search input, dialogs, buttons with interactivity. Never mark a page or layout as a Client Component unless absolutely required.
+- Fetch initial note data in Server Components or Server Actions, not in `useEffect`.
+- Use Server Actions for note/tag/folder mutations (create, update, delete, move). Use Route Handlers (`app/api/**/route.ts`) for the AI summarization endpoint (streaming responses, webhooks, external API calls).
+- Colocate `loading.tsx` and `error.tsx` with the route segments they cover; `error.tsx` must be a Client Component.
+- Keep `middleware.ts` for lightweight auth checks and Supabase token refresh only — no database queries there.
+- Validate every Server Action and Route Handler input with Zod. Never trust `userId` from the request body — derive it from the authenticated session.
+- Parallelize independent data fetches with `Promise.all`.
+
+### Supabase and data access
+
+- Use `@supabase/ssr` (never the deprecated auth-helpers or a bare `supabase-js` client on the server).
+- Three client factories, one per context: `createBrowserClient` for Client Components, `createServerClient` with `cookies()` from `next/headers` for Server Components and Server Actions, `createServerClient` with request/response cookies in middleware.
+- Middleware must call `supabase.auth.getUser()` on every request to refresh and validate the session token, and must return the `supabaseResponse` object.
+- For any security-sensitive server-side check use `getUser()` (validates the JWT), never `getSession()` (reads the cookie without verification).
+- Enable Row Level Security on every table. Policies: users may only SELECT/INSERT/UPDATE/DELETE rows where `user_id = auth.uid()`. Test RLS policies with the anon key, not the service role.
+- The service-role key is used only in trusted server code that must bypass RLS; it must never reach the browser bundle. Prefer not using it at all for user-facing features.
+- Store API keys (OpenAI/Anthropic) in environment variables on the server only, without the `NEXT_PUBLIC_` prefix.
+
+### Database schema (minimum)
+
+- `folders` (id, user_id, name, created_at)
+- `notes` (id, user_id, folder_id, title, content_html, content_text, created_at, updated_at)
+- `tags` (id, user_id, name, unique per user) and `note_tags` (note_id, tag_id) join table
+- Store both HTML (for TipTap rendering) and plain text (`content_text`) in `notes`: plain text powers search and AI summarization without parsing HTML.
+- Add indexes on `notes(user_id)`, `notes(folder_id)`, and a full-text index (or pg_trgm / tsvector column) over `content_text` for search.
+- All foreign keys cascade on delete so removing a folder or note cleans up joins.
+
+### TipTap editor
+
+- Use TipTap v3 with `@tiptap/starter-kit`; enable only the extensions needed: Bold, Italic, BulletList, OrderedList.
+- The editor is a Client Component. Debounce content updates (autosave) before persisting to Supabase.
+- Never render user-generated HTML with `dangerouslySetInnerHTML`; if it is unavoidable, sanitize it (DOMPurify) on the server first.
+
+### AI summarization
+
+- All LLM calls happen in Route Handlers or Server Actions on the server. Never call OpenAI/Anthropic from the client.
+- Send the plain-text note content (`content_text`), truncate to a sane token limit before sending.
+- Use streaming responses (SSE or ReadableStream) so the summary renders progressively in the UI.
+- Handle failures gracefully: API errors, rate limits, and empty notes must show a friendly error state, not crash the editor.
+- Abstract the provider behind a single interface so OpenAI and Anthropic remain interchangeable.
+
+### Search
+
+- Search runs server-side against `content_text` (and title). Return only notes belonging to the authenticated user (enforced by RLS + scoped queries).
+
+### UI and responsiveness
+
+- Mobile-first Tailwind CSS. The editor and sidebar must be usable down to 360px viewport width.
+- Respect reduced motion and keyboard accessibility for editor toolbar controls.
+
+### Code style
+
+- TypeScript strict mode; no `any` unless justified in a comment.
+- Named exports for components and utilities.
+- File naming: components in PascalCase, everything else in kebab-case.
+- Path alias `@/` maps to the project root (`src/` if used).
+
+## Project structure (App Router)
+
+```
+app/
+  (auth)/            # login, signup routes
+  dashboard/         # notes list, folders, tags
+  notes/[id]/        # single note editor page
+  api/
+    summarize/route.ts   # AI summarization endpoint
+components/         # shared UI (editor, sidebar, tag chips)
+lib/
+  supabase/         # client factories: client.ts, server.ts, middleware.ts
+  ai/               # LLM provider abstraction
+  actions/          # Server Actions for notes, folders, tags
+types/              # shared TypeScript types
+middleware.ts
+```
+
+## Environment variables
+
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (server-only)
+- Deploy on Vercel: set the same variables in the Vercel project settings.
+
+## When generating code
+
+- Follow the server-first rule: ask whether the component really needs to be a Client Component before adding `"use client"`.
+- Always scope database queries by the current user and rely on RLS as the second line of defense.
+- Never hardcode API keys, Supabase URLs, or user IDs.
+- Prefer Server Actions over ad-hoc API routes for mutations; prefer Route Handlers for anything that streams or integrates with external services.

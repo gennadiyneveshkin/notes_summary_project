@@ -1,0 +1,108 @@
+---
+description: TypeScript and Next.js App Router standards — use when writing or reviewing .ts/.tsx code, components, data fetching, server actions, routing or project structure
+globs: **/*.ts,**/*.tsx
+alwaysApply: false
+---
+
+# TypeScript + Next.js (App Router) Standards
+
+Follow official Next.js and TypeScript guidance. When unsure, prefer the pattern documented at nextjs.org/docs and typescriptlang.org.
+
+## TypeScript
+
+- Always enable `strict: true` in `tsconfig.json`. For new projects also enable `noUncheckedIndexedAccess` and `verbatimModuleSyntax`.
+- Never use `any`. If the type is unknown, use `unknown` and narrow it with type guards. Never use `as any`, `@ts-ignore`, or `@ts-expect-error` without a one-line explanation directly above it.
+- Prefer type inference for local variables; annotate function parameters and public API return types explicitly.
+- Use `import type` / `export type` for type-only imports (required with `verbatimModuleSyntax`).
+- Use `interface` for extensible object shapes and public APIs; use `type` for unions, intersections, and utility compositions.
+- Use discriminated unions with a literal `kind`/`status` field instead of boolean flag combinations; handle every union member explicitly.
+- Do not use `enum`; use `as const` objects and derive types: `const ROUTES = { home: '/' } as const; type Route = typeof ROUTES[keyof typeof ROUTES];`
+- For runtime validation of external data (API responses, form input, env vars), use a schema library (e.g. Zod) — never trust unvalidated data from the network.
+- Prefer `unknown` in `catch`: `catch (error) { ... }` then narrow with `error instanceof Error`.
+- Utility types (`Partial`, `Pick`, `Omit`, `Record`, `Readonly`, `ReturnType`) over hand-duplicated shapes.
+- Avoid non-null assertions `!` — restructure the code or narrow types instead.
+
+## Server vs Client Components
+
+- Start with Server Components (the default in App Router). Add `'use client'` only to the smallest possible interactive leaf: buttons, forms, modals, widgets that use state, effects, or browser APIs.
+- Never add `'use client'` to a component just because it receives props from a client component — pass serializable props instead, or render children as Server Component slots.
+- In Server Components: fetch data, access databases/files/secret env vars, and render heavy static UI.
+- In Client Components: `useState`, `useEffect`, event handlers, `localStorage` and other browser APIs.
+- Do not use `Date.now()`, `Math.random()`, or `crypto.randomUUID()` in code rendered on the server without hydration-safe handling.
+- Pass only serializable data across the Server/Client boundary: no functions, class instances, or Dates (unless using the built-in React Server Component serialization).
+
+## Data fetching and caching
+
+- Fetch data in Server Components with `async/await` or in Server Actions. Do not call Route Handlers (`app/api/**`) from Server Components — call the database or service directly.
+- In Next.js 15+, `fetch` requests are **not cached by default** (`cache: 'no-store'` semantics). Opt in explicitly when needed:
+  - `cache: 'force-cache'` for cacheable, rarely changing data;
+  - `revalidate: N` (seconds) for periodic revalidation;
+  - `revalidateTag` / `revalidatePath` (Server Actions or Route Handlers) for on-demand invalidation.
+- Dynamic rendering is triggered by `cookies()`, `headers()`, `searchParams`, and uncached `fetch`. Be deliberate about what is static vs dynamic.
+- Prefer `<Suspense>` + streaming with `loading.tsx` or nested `<Suspense>` boundaries over blocking full-page loads on slow data.
+- Do not fetch the same data twice: lift shared fetches to a parent layout or use the deduplicated fetch cache.
+
+## Server Actions and Route Handlers
+
+- Mutations (create/update/delete) go through Server Actions (`'use server'`), not manual `fetch` to Route Handlers.
+- Always revalidate: call `revalidatePath` or `revalidateTag` after a successful mutation.
+- Validate all input in Server Actions with a schema (Zod) before touching the database.
+- Use Route Handlers (`route.ts`) only for webhooks, external API endpoints, and client-only needs — not as an internal proxy.
+- Return proper status codes and typed error shapes; never leak stack traces or internal errors to the client.
+
+## Routing and file conventions
+
+- Use the App Router (`app/`). Route files follow conventions: `layout.tsx`, `page.tsx`, `loading.tsx`, `error.tsx` (must be a Client Component wrapping `reset()`), `not-found.tsx`, `route.ts`, `template.tsx`.
+- Route groups `(folder)` organize routes without affecting the URL; colocate feature-specific files near their route segment.
+- Every user-facing route that depends on remote or dynamic data must have a `loading.tsx` and an `error.tsx`.
+- In `page.tsx`, treat `params` and `searchParams` as Promises (Next.js 15): `async function Page({ params }: { params: Promise<{ id: string }> })` and `await` them.
+- Use `Link` from `next/link` for internal navigation. Never use raw `<a href>` for internal routes.
+- Prefer `useRouter`/`useSearchParams` from `next/navigation` (not `next/router`) in client code.
+
+## Metadata and SEO
+
+- Export a `metadata` object (or `generateMetadata` for dynamic values) from every `layout.tsx` and `page.tsx`.
+- Use `generateStaticParams` for statically generating dynamic segments when data is known at build time.
+- Use the `Metadata` API for titles, descriptions, Open Graph and canonical URLs instead of manual `<meta>` tags.
+
+## Styling, images and fonts
+
+- Use `next/image` for all images (automatic optimization, lazy loading, responsive sizes); provide `alt` text always, `width`/`height` or `fill` to avoid layout shift.
+- Use `next/font` (font module) for web fonts — no manual `<link>` font loading.
+- Global CSS lives in the root layout; component styles are colocated (CSS Modules) or framework-scoped (e.g. Tailwind). Do not import global CSS in nested components.
+
+## Environment variables and security
+
+- Server-only secrets have no `NEXT_PUBLIC_` prefix. Anything prefixed `NEXT_PUBLIC_` is exposed to the browser — never put secrets there.
+- Validate `process.env` values at startup with a typed accessor (e.g. Zod-parsed `env.ts` module), not inline scattered checks.
+- Run dangerous rendering (user-generated HTML) through sanitization; use `dangerouslySetInnerHTML` only with sanitized, trusted content.
+- Keep authorization checks on the server (Server Components / Server Actions / middleware), never rely on client-side UI hiding.
+
+## Project structure and naming
+
+- Components, hooks, and utilities are colocated in feature folders; shared primitives live in `components/ui`.
+- Files: `PascalCase.tsx` for components, `camelCase.ts` for utilities/hooks, `kebab-case` for route folders. Types use `PascalCase`; variables and functions use `camelCase`; constants use `UPPER_SNAKE_CASE`.
+- Prefer named exports over default exports.
+- Keep a single source of truth for shared types in `types/` or colocated `schema`/`model` files.
+- Do not import across feature boundaries except through a public index (`index.ts`) of each feature.
+
+## Performance
+
+- Code-split heavy client components with `next/dynamic` (`ssr: false` only when the component truly needs browser-only APIs).
+- Prefer server-side rendering and streaming; do not implement client-side fetching where a Server Component or Server Action fits.
+- Avoid `useEffect` for data fetching in client code — use Server Components, Server Actions, or a data-fetching library when client caching is required.
+- Keep `"use cache"` / `unstable_` APIs out of production code unless the team explicitly adopts them; track their status in the Next.js canary release notes first.
+
+## Tooling and quality gates
+
+- ESLint with `eslint-config-next` (flat config in ESLint 9+) for linting; Prettier (or Biome) for formatting — never mix.
+- `next build` must pass with zero type errors before merging; type errors are not warnings.
+- Naming of commits and code follows the existing project conventions; do not introduce new dependency libraries for a task unless asked.
+
+## Anti-patterns (never do)
+
+- Do not create `'use client'` pages that fetch data client-side when server rendering is possible.
+- Do not use `getServerSideProps`/`getStaticProps` (Pages Router APIs) in an App Router project.
+- Do not mutate props or global state directly; do not call APIs from `render` (use effects or server logic).
+- Do not hardcode absolute URLs for internal links or images — use route constants and `next/image`.
+- Do not disable ESLint/TypeScript errors with inline comments to "make the build pass" without a documented reason.
